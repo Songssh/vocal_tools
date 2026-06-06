@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocal-tools"
+version = "0.1.0"
+description = "Small reusable wrappers for MDX source separation and RVC voice conversion."
+requires-python = ">=3.9"
+# TODO(vocal_tools): The base install still includes heavy MDX/RVC runtime
+# dependencies for backward compatibility with existing direct imports. In a
+# future packaging cleanup, move engine-specific dependencies into optional
+# extras once downstream usage is audited.
+dependencies = [
+    "ffmpeg-python",
+    "librosa",
+    "numpy",
+    "scipy",
+    "soundfile",
+    "torch",
+    "tqdm",
+]
+
+[project.scripts]
+vocal-tools = "vocal_tools.cli:main"
+
+[project.optional-dependencies]
+mdx = [
+    "onnxruntime",
+]
+demucs = [
+    "demucs",
+]
+vr = [
+    # TODO(vocal_tools): Add a concrete VR Architecture backend package once selected.
+]
+mdxc = [
+    # TODO(vocal_tools): Add a concrete MDXC/Roformer backend package once selected.
+]
+rvc = [
+    "faiss-cpu",
+    "fairseq==0.12.2",
+    "praat-parselmouth",
+    "pyworld",
+    "torchcrepe",
+]
+audio = [
+    "pedalboard",
+    "pydub",
+]
+gpu = [
+    "onnxruntime-gpu",
+]
+all = [
+    "faiss-cpu",
+    "fairseq==0.12.2",
+    "onnxruntime",
+    "pedalboard",
+    "praat-parselmouth",
+    "pydub",
+    "pyworld",
+    "torchcrepe",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vocal_tools*"]
+
+[tool.setuptools.package-data]
+vocal_tools = ["manifests/*.json"]
+"vocal_tools.manifests" = ["*.json"]
