@@ -23,6 +23,8 @@ When using the local virtual environment directly:
 - Presence of representative builtin model ids: `kim_vocal_2`, `htdemucs`, `htdemucs_6s`
 - CLI option parsing utility
 - Payload validation success and failure cases
+- TTS lazy imports, shared result/progress contracts, async calls, atomic output,
+  reference prompt caching, offline model resolution, and payload/CLI parity
 
 ## What Smoke Tests Do Not Cover
 
@@ -33,6 +35,7 @@ The default smoke tests do not run real inference. They intentionally skip:
 - RVC conversion
 - Full cover pipeline inference
 - External VR Arch and MDXC adapter execution
+- Online Edge TTS requests and real Qwen3-TTS model downloads/inference
 
 Those checks require model files, runtime dependencies, short audio fixtures, and sometimes CUDA. Run them separately before a release candidate when the environment is ready.
 

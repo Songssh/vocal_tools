@@ -21,11 +21,13 @@ This project intentionally does not contain a FastAPI server, web UI, database, 
 | [usage_mdx.md](usage_mdx.md) | MDX ONNX usage |
 | [usage_demucs.md](usage_demucs.md) | Demucs usage and two-stems behavior |
 | [usage_rvc.md](usage_rvc.md) | RVC conversion usage |
+| [usage_tts.md](usage_tts.md) | Edge TTS and Qwen3-TTS reference voice synthesis |
 | [usage_rvc_voice_catalog.md](usage_rvc_voice_catalog.md) | RVC voice model catalog usage |
 | [usage_cover_pipeline.md](usage_cover_pipeline.md) | MDX -> RVC -> Mix cover pipeline |
 | [usage_catalog.md](usage_catalog.md) | Builtin, remote, and user catalog usage |
 | [task_payload_helpers.md](task_payload_helpers.md) | JSON-safe task helper and validation functions |
 | [shs_gpu_node_integration.md](shs_gpu_node_integration.md) | How SHS GPU Node can call the library |
+| [shs_gpu_node_vc_mdx_manual.md](shs_gpu_node_vc_mdx_manual.md) | Korean guide for adding RVC and MDX jobs to SHS GPU Node |
 | [examples.md](examples.md) | Example file guide |
 | [roadmap.md](roadmap.md) | Forward roadmap |
 
@@ -69,6 +71,7 @@ Implemented:
 - MDX ONNX separation through `ModelCatalog`, `Separator`, and `MDXOnnxEngine`
 - Demucs separation through `DemucsEngine`
 - RVC conversion through `RVCConverter`
+- Edge / Qwen3-TTS synthesis through `TTS`, `EdgeTTS`, and `Qwen3TTS`
 - Audio mixing through `mix_vocal_with_instrumental()`
 - Cover pipeline through `run_cover_pipeline()`
 - JSON-safe task helper functions under `vocal_tools.tasks`

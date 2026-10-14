@@ -11,6 +11,17 @@ python -m vocal_tools.cli --help
 
 The CLI is intentionally not a server, web UI, database, or queue. Commands build task payloads and call the existing Python helper APIs.
 
+## Text to Speech
+
+```powershell
+vocal-tools tts --engine edge --text "안녕하세요" --output output/hello.mp3
+vocal-tools tts --engine qwen3 --text "새로운 문장입니다" --reference-audio reference.wav --language ko --output output/clone.wav
+```
+
+Use `--reference-text` for the reference recording's transcript when available.
+Both engines use the same TTS payload API. See [usage_tts.md](usage_tts.md) for
+installation, model caching, output formats, and all supported settings.
+
 ## Error Handling
 
 Failures print a short human-readable error to stderr:

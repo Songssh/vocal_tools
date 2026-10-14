@@ -18,6 +18,18 @@ class ModelVerificationError(VocalToolsError):
     """Raised when a model file fails size or checksum verification."""
 
 
+class ModelResolveError(VocalToolsError):
+    """Raised when a model reference cannot be resolved to usable model files."""
+
+
+class ModelNotInstalledError(ModelResolveError, ModelNotDownloadedError):
+    """Raised when a catalog model is known but its local files are not installed."""
+
+
+class ModelPathNotFoundError(ModelResolveError):
+    """Raised when a model reference is treated as a path but does not exist."""
+
+
 class UnsupportedEngineError(VocalToolsError):
     """Raised when an engine is unavailable or not implemented yet."""
 
@@ -32,3 +44,11 @@ class InvalidManifestError(VocalToolsError):
 
 class SeparationError(VocalToolsError):
     """Raised when separation fails after request validation."""
+
+
+class TTSError(VocalToolsError):
+    """Raised when speech synthesis or its runtime fails."""
+
+
+class TTSDependencyError(TTSError):
+    """Raised when a TTS backend or required output codec is unavailable."""

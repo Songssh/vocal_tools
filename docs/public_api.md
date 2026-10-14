@@ -57,6 +57,18 @@ from vocal_tools import RVCConverter, RVCConversionOptions, RVCVoiceModelPaths
 | `RVCConversionOptions` | Conversion option dataclass |
 | `RVCVoiceModelPaths` | Resolved `.pth` and optional `.index` paths |
 
+## Text to speech
+
+```python
+from vocal_tools import TTS, EdgeTTS, Qwen3TTS, TTSResult, TTSError, TTSDependencyError
+from vocal_tools import run_tts_payload, run_tts_payload_async, validate_tts_payload
+```
+
+Both engines expose `synthesize(text, output_path, ...)` and `synthesize_async`,
+return `TTSResult`, and emit `ProgressEvent`. `TTS(engine="edge" | "qwen3", **config)`
+is the common entry point. See [usage_tts.md](usage_tts.md) for installation,
+reference audio, reusable instances, payloads, and CLI examples.
+
 ## Mixing
 
 ```python

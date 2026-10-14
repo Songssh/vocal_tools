@@ -9,6 +9,8 @@ This project is being shaped into a reusable UVR-like headless audio engine libr
 | MDX ONNX | Implemented through `MDXOnnxEngine` |
 | Demucs | Implemented through `DemucsEngine` |
 | RVC | Implemented through `RVCConverter` |
+| Edge TTS | Online MP3/WAV synthesis, voice listing, sync and async APIs |
+| Qwen3-TTS | Base model reference voice synthesis, lazy loading and reusable reference cache |
 | Cover pipeline | Implemented as `MDX -> RVC -> Mix` |
 | Audio mix | Implemented with sample-rate and channel alignment |
 | Model catalog | Builtin, user, and remote manifest sources |

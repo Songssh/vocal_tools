@@ -50,6 +50,14 @@ Demucs models are package-managed and are intentionally not downloaded into `tes
 | `rvc_convert.py` | Basic direct `RVCConverter` example | `python examples/rvc_convert.py` | `data/models/hubert_base.pt`, `data/models/rmvpe.pt`, `data/models/iut`, and vocal input | `output/song/song_iut.wav` |
 | `verify_rvc_converter.py` | Verify RVC model resolution and conversion on short input | `python examples/verify_rvc_converter.py --models-dir test_models --voice-model iut --input output/verify_pipeline/mdx/test_tone_10s_vocals.wav --output output/verify_rvc/iut_converted.wav` | `test_models/hubert_base.pt`, `test_models/rmvpe.pt`, `test_models/iut` | `output/verify_rvc/iut_converted.wav` |
 
+## TTS
+
+Run `python examples/tts_usage.py --engine edge --output output/hello.mp3` after
+installing `.[edge-tts]`. For reference voice synthesis, install `.[qwen-tts]` and
+run `python examples/tts_usage.py --engine qwen3 --reference-audio reference.wav --output output/clone.wav`.
+These commands perform real synthesis; Qwen may download its model on first use.
+See [usage_tts.md](usage_tts.md) for transcripts, async calls, and reusable caches.
+
 ## Pipeline
 
 | File | Purpose | Command | Required models | Output |

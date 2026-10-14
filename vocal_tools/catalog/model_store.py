@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import urllib.parse
 import urllib.request
-from pathlib import Path
-from typing import Any, Optional
+from pathlib import Path, PureWindowsPath
+from typing import Any, Iterable, Mapping, Optional
 
 from vocal_tools.core.errors import (
+    ModelResolveError,
     ModelNotDownloadedError,
     ModelVerificationError,
 )
@@ -21,7 +23,10 @@ class ModelStore:
     def resolve_model_path(self, model: SeparationModelSpec) -> Optional[Path]:
         if not model.filename:
             return None
-        return self.model_dir / model.filename
+        return self.resolve_artifact_path(model.filename, model.id)
+
+    def resolve_artifact_path(self, filename: str, model_id: str) -> Path:
+        return self.model_dir / self._safe_relative_path(filename, model_id)
 
     def get_model_path(self, model: SeparationModelSpec) -> Path:
         path = self.resolve_model_path(model)
@@ -97,6 +102,53 @@ class ModelStore:
             )
 
         return self.download_model(model, progress_callback=progress_callback, overwrite=False)
+
+    def ensure_model_files(
+        self,
+        model: SeparationModelSpec,
+        artifacts: Iterable[Mapping[str, Any]],
+        progress_callback: Optional[ProgressCallback] = None,
+        *,
+        verify: bool = True,
+    ) -> dict[str, Path]:
+        files: dict[str, Path] = {}
+        for artifact in artifacts:
+            key = str(artifact.get("key") or "model")
+            filename = artifact.get("filename")
+            required = bool(artifact.get("required", True))
+            if not filename:
+                if required:
+                    raise ModelNotDownloadedError(
+                        f"Model {model.id!r} does not define a filename for artifact {key!r}."
+                    )
+                continue
+
+            path = self.resolve_artifact_path(str(filename), model.id)
+            artifact_model = self._artifact_model(model, artifact, verify=verify)
+            if path.exists():
+                if verify:
+                    self._verify_or_raise(artifact_model, path)
+                files[key] = path
+                continue
+
+            if not artifact.get("download_url"):
+                if required:
+                    raise ModelNotDownloadedError(
+                        f"Model {model.id!r} artifact {key!r} is not downloaded "
+                        f"and no download_url is configured: {path}"
+                    )
+                continue
+
+            downloaded = self.ensure_model(artifact_model, progress_callback=progress_callback)
+            if downloaded is None:
+                if required:
+                    raise ModelNotDownloadedError(
+                        f"Model {model.id!r} artifact {key!r} did not resolve to a file."
+                    )
+                continue
+            files[key] = downloaded
+
+        return files
 
     def download_model(
         self,
@@ -217,13 +269,17 @@ class ModelStore:
         model: SeparationModelSpec,
         progress_callback: Optional[ProgressCallback],
     ) -> None:
+        source_path = Path(url)
+        if source_path.exists():
+            self._copy_local(source_path, partial_path, model, progress_callback)
+            return
+
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme.lower() == "file":
             source_path = Path(urllib.request.url2pathname(parsed.path))
             self._copy_local(source_path, partial_path, model, progress_callback)
             return
 
-        source_path = Path(url)
         if parsed.scheme == "" and source_path.exists():
             self._copy_local(source_path, partial_path, model, progress_callback)
             return
@@ -281,6 +337,28 @@ class ModelStore:
             return path.stat().st_size
         except OSError:
             return None
+
+    def _safe_relative_path(self, filename: str, model_id: str) -> Path:
+        path = Path(filename)
+        windows_path = PureWindowsPath(filename)
+        if path.is_absolute() or windows_path.is_absolute() or ".." in path.parts or ".." in windows_path.parts:
+            raise ModelResolveError(f"Unsafe model filename for {model_id!r}: {filename}")
+        return path
+
+    def _artifact_model(
+        self,
+        model: SeparationModelSpec,
+        artifact: Mapping[str, Any],
+        *,
+        verify: bool,
+    ) -> SeparationModelSpec:
+        return replace(
+            model,
+            filename=str(artifact.get("filename")),
+            download_url=artifact.get("download_url"),
+            sha256=artifact.get("sha256") if verify else None,
+            file_size=artifact.get("file_size") if verify else None,
+        )
 
     def _sha256(self, path: Path) -> str:
         digest = hashlib.sha256()

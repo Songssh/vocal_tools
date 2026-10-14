@@ -12,6 +12,11 @@ vocal_tools/
   rvc.py
   audio/
     mix.py
+  tts/
+    __init__.py
+    edge.py
+    qwen.py
+    _common.py
   catalog/
     model_catalog.py
     model_store.py
@@ -34,6 +39,7 @@ vocal_tools/
     cover.py
   tasks/
     audio_tasks.py
+    tts_tasks.py
 ```
 
 ## Responsibility Split
