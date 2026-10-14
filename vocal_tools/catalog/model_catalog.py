@@ -61,6 +61,34 @@ class ModelCatalog:
             models = [model for model in models if tag in model.tags]
         return models
 
+    @classmethod
+    def with_uvr_remote(
+        cls,
+        model_dir,
+        *,
+        builtin_manifest_path=None,
+        user_manifest_path=None,
+        include_unsupported: bool = False,
+        include_vr: bool = False,
+        include_mdx: bool = True,
+        include_demucs: bool = True,
+        source_urls: Optional[dict[str, str]] = None,
+        timeout: float = 30.0,
+    ) -> "ModelCatalog":
+        catalog = cls(
+            model_dir=model_dir,
+            builtin_manifest_path=builtin_manifest_path,
+            user_manifest_path=user_manifest_path,
+        )
+        return catalog.load_uvr_remote(
+            include_unsupported=include_unsupported,
+            include_vr=include_vr,
+            include_mdx=include_mdx,
+            include_demucs=include_demucs,
+            source_urls=source_urls,
+            timeout=timeout,
+        )
+
     def get_model(self, model_id: str) -> SeparationModelSpec:
         try:
             return self._models[model_id]
@@ -80,6 +108,42 @@ class ModelCatalog:
         self.remote_manifest_cache_path = Path(cache_path) if cache_path is not None else None
         self._remote_manifest_info = dict(info)
         self._remote_models = self._read_manifest_data(data, source=url)
+        self._refresh_models()
+        return self
+
+    def load_uvr_remote(
+        self,
+        *,
+        include_unsupported: bool = False,
+        include_vr: bool = False,
+        include_mdx: bool = True,
+        include_demucs: bool = True,
+        source_urls: Optional[dict[str, str]] = None,
+        timeout: float = 30.0,
+    ) -> "ModelCatalog":
+        from vocal_tools.catalog.uvr_importer import load_uvr_model_entries
+
+        entries = load_uvr_model_entries(
+            include_unsupported=include_unsupported,
+            include_vr=include_vr,
+            include_mdx=include_mdx,
+            include_demucs=include_demucs,
+            source_urls=source_urls,
+            timeout=timeout,
+        )
+        self._remote_manifest_info = {
+            "source_name": "uvr",
+            "source_label": "uvr",
+            "loaded_from": "uvr_importer",
+            "include_unsupported": include_unsupported,
+            "include_vr": include_vr,
+            "include_mdx": include_mdx,
+            "include_demucs": include_demucs,
+            "source_urls": dict(source_urls or {}),
+        }
+        self.remote_manifest_url = None
+        self.remote_manifest_cache_path = None
+        self._remote_models = self._read_manifest_data({"models": entries}, source="uvr")
         self._refresh_models()
         return self
 
@@ -113,7 +177,7 @@ class ModelCatalog:
                 "path": str(self.builtin_manifest_path) if self.builtin_manifest_path is not None else None,
             },
             {
-                "source": "remote",
+                "source": self._remote_manifest_info.get("source_label", "remote"),
                 "count": len(self._remote_models),
                 "path": remote_path,
                 "url": self.remote_manifest_url,
@@ -200,16 +264,31 @@ class ModelCatalog:
         arch: Optional[str] = None,
         task: Optional[str] = None,
         tag: Optional[str] = None,
+        include_unsupported: bool = False,
+        source: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        return [self._model_card(model) for model in self.list_models(arch=arch, task=task, tag=tag)]
+        cards = [self._model_card(model) for model in self.list_models(arch=arch, task=task, tag=tag)]
+        if not include_unsupported:
+            cards = [card for card in cards if card.get("metadata", {}).get("runnable") is not False]
+        if source is not None:
+            cards = [card for card in cards if card.get("source") == source]
+        return cards
 
     def to_model_cards(
         self,
         arch: Optional[str] = None,
         task: Optional[str] = None,
         tag: Optional[str] = None,
+        include_unsupported: bool = False,
+        source: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        return self.list_model_cards(arch=arch, task=task, tag=tag)
+        return self.list_model_cards(
+            arch=arch,
+            task=task,
+            tag=tag,
+            include_unsupported=include_unsupported,
+            source=source,
+        )
 
     def _load_models(self) -> None:
         if self.builtin_manifest_path is None or not self.builtin_manifest_path.exists():
@@ -412,9 +491,10 @@ class ModelCatalog:
     def _model_card(self, model: SeparationModelSpec) -> Dict[str, Any]:
         card = model.to_dict()
         source = self._model_sources.get(model.id, "builtin")
+        display_source = self._display_source(model, source)
         download_status = self.store.get_download_status(model)
 
-        card["source"] = source
+        card["source"] = display_source
         card["downloaded"] = download_status["downloaded"]
         card["model_path"] = download_status["model_path"]
         card["managed_by"] = download_status["managed_by"]
@@ -426,10 +506,20 @@ class ModelCatalog:
         metadata = dict(card.get("metadata") or {})
         metadata.update(
             {
-                "source": source,
+                "source": display_source,
+                "source_layer": source,
                 "source_priority": self._source_priority(source),
             }
         )
+        runnable = metadata.get("runnable")
+        if runnable is None:
+            runnable = self._model_runnable(model)
+            metadata["runnable"] = runnable
+        else:
+            runnable = self._coerce_runnable(runnable)
+            metadata["runnable"] = runnable
+        if runnable is False and not metadata.get("unsupported_reason"):
+            metadata["unsupported_reason"] = self._unsupported_reason(model)
         if model.id in self._model_collisions:
             metadata["conflicts"] = list(self._model_collisions[model.id])
         card["metadata"] = metadata
@@ -492,6 +582,28 @@ class ModelCatalog:
             "remote": 20,
             "user": 30,
         }.get(source, 0)
+
+    def _display_source(self, model: SeparationModelSpec, source: str) -> str:
+        metadata_source = model.metadata.get("source")
+        if source == "remote" and metadata_source == "uvr":
+            return "uvr"
+        return source
+
+    def _model_runnable(self, model: SeparationModelSpec) -> bool:
+        runnable = model.metadata.get("runnable")
+        if runnable is not None:
+            return self._coerce_runnable(runnable)
+        return model.arch in {"mdx_onnx", "demucs"}
+
+    def _unsupported_reason(self, model: SeparationModelSpec) -> Optional[str]:
+        if self._model_runnable(model):
+            return None
+        return "engine_not_implemented"
+
+    def _coerce_runnable(self, value: Any) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(value)
 
     def _default_builtin_manifest_path(self) -> Path:
         return Path(__file__).resolve().parent.parent / "manifests" / "builtin_models.json"

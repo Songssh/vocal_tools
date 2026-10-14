@@ -141,7 +141,10 @@ def list_audio_models_payload(payload: dict) -> dict:
             remote_manifest_url=payload.get("remote_manifest_url"),
             remote_manifest_cache_path=payload.get("remote_manifest_cache_path"),
         )
-        separation_models = catalog.list_model_cards()
+        separation_models = catalog.list_model_cards(
+            include_unsupported=bool(payload.get("include_unsupported", False)),
+            source=payload.get("source"),
+        )
         sources = catalog.list_sources()
 
     voice_models = []

@@ -63,13 +63,17 @@ class SeparationModelSpec:
     name: str
     arch: str
     filename: Optional[str] = None
+    index_filename: Optional[str] = None
     tasks: List[str] = field(default_factory=list)
     output_stems: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
     description: Optional[str] = None
     download_url: Optional[str] = None
+    index_download_url: Optional[str] = None
     sha256: Optional[str] = None
+    index_sha256: Optional[str] = None
     file_size: Optional[int] = None
+    index_file_size: Optional[int] = None
     defaults: Dict[str, Any] = field(default_factory=dict)
     options: List[OptionSpec] = field(default_factory=list)
     ui: Dict[str, Any] = field(default_factory=dict)
@@ -86,13 +90,17 @@ class SeparationModelSpec:
             name=data["name"],
             arch=data["arch"],
             filename=data.get("filename"),
+            index_filename=data.get("index_filename"),
             tasks=list(data.get("tasks", [])),
             output_stems=list(data.get("output_stems", [])),
             tags=list(data.get("tags", [])),
             description=data.get("description"),
             download_url=data.get("download_url"),
+            index_download_url=data.get("index_download_url"),
             sha256=data.get("sha256"),
+            index_sha256=data.get("index_sha256"),
             file_size=data.get("file_size"),
+            index_file_size=data.get("index_file_size"),
             defaults=dict(data.get("defaults", {})),
             options=[OptionSpec.from_dict(option) for option in data.get("options", [])],
             ui=dict(data.get("ui", {})),

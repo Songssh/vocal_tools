@@ -144,7 +144,7 @@ MDXC runners often require `model_config_path`, `model_path`, or `checkpoint_pat
 
 ## RVC Voice Model Entry
 
-RVC voice models are currently discovered by `RVCVoiceCatalog` from the file system. A future public voice model manifest can use this shape:
+RVC voice models can be discovered from the file system or resolved from a model manifest. Manifest entries use `arch: "rvc_voice"` and can describe the voice checkpoint plus an optional feature index:
 
 ```json
 {
@@ -170,6 +170,19 @@ RVC voice models are currently discovered by `RVCVoiceCatalog` from the file sys
   "metadata": {}
 }
 ```
+
+`filename` is the required `.pth` checkpoint path relative to the configured model directory. `index_filename` is the optional `.index` path relative to the same root. Both paths must be relative; absolute paths and paths containing `..` are rejected by the resolver/store layer.
+
+`download_url` is used to download the `.pth` file when it is missing and `auto_download=True`. `index_download_url` is used to download the `.index` file when `index_filename` is present. Local filesystem paths and `file://` URLs are supported by the store, in addition to regular URLs supported by Python's URL opener.
+
+The index file is optional by default. If `metadata.index_required` is true, a missing index raises an install/resolve error. If both `index_filename` and `index_download_url` are provided, the resolver treats the index artifact as required for that download operation so checksum/size failures are surfaced clearly.
+
+Checksum and size fields are artifact-specific:
+
+| Artifact | Filename field | URL field | SHA-256 field | Size field |
+| --- | --- | --- | --- | --- |
+| RVC checkpoint | `filename` | `download_url` | `sha256` | `file_size` |
+| RVC index | `index_filename` | `index_download_url` | `index_sha256` | `index_file_size` |
 
 ## Download Fields
 

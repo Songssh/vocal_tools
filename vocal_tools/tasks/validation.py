@@ -70,6 +70,11 @@ def validate_list_audio_models_payload(payload: dict) -> dict:
     _normalize_optional_path(normalized, "remote_manifest_cache_path")
     normalized["include_separation_models"] = bool(normalized.get("include_separation_models", True))
     normalized["include_voice_models"] = bool(normalized.get("include_voice_models", True))
+    normalized["include_unsupported"] = bool(normalized.get("include_unsupported", False))
+    if normalized.get("source") in (None, ""):
+        normalized["source"] = None
+    else:
+        normalized["source"] = str(normalized["source"])
     return normalized
 
 

@@ -2,7 +2,9 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from dataclasses import dataclass, replace
 from contextlib import contextmanager
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
+
+from vocal_tools.catalog import resolve_model
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -251,8 +253,19 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
 
 
 class RVCConverter:
-    def __init__(self, models_dir, hubert_path=None, rmvpe_path=None, device="auto", is_half="auto"):
+    def __init__(
+        self,
+        models_dir,
+        hubert_path=None,
+        rmvpe_path=None,
+        device="auto",
+        is_half="auto",
+        catalog=None,
+    ):
         self.models_dir = Path(models_dir)
+        self.catalog = catalog
+        self._hubert_path_explicit = hubert_path is not None
+        self._rmvpe_path_explicit = rmvpe_path is not None
         self.hubert_path = Path(hubert_path) if hubert_path else self.models_dir / "hubert_base.pt"
         self.rmvpe_path = Path(rmvpe_path) if rmvpe_path else self.models_dir / "rmvpe.pt"
         self.config = Config(device=device, is_half=is_half, rmvpe_path=self.rmvpe_path)
@@ -285,6 +298,47 @@ class RVCConverter:
         index_path = index_files[0] if index_files else None
         return RVCVoiceModelPaths(model_path=model_path, index_path=index_path)
 
+    def resolve_voice_model(
+        self,
+        model,
+        *,
+        index=None,
+        models_dir=None,
+        model_dirs: Optional[Sequence[str | Path]] = None,
+        download_dir=None,
+        auto_download: bool = False,
+        verify: bool = True,
+    ) -> RVCVoiceModelPaths:
+        search_models_dir = Path(models_dir) if models_dir is not None else self.models_dir
+        resolved = resolve_model(
+            model,
+            arch="rvc_voice",
+            task="voice_conversion",
+            catalog=self.catalog,
+            models_dir=search_models_dir,
+            model_dirs=model_dirs,
+            download_dir=download_dir,
+            auto_download=auto_download,
+            verify=verify,
+        )
+        try:
+            model_path = resolved.files["model"]
+        except KeyError as exc:
+            raise FileNotFoundError(f"RVC voice model did not resolve to a .pth file: {model}") from exc
+
+        index_path = self._resolve_index_path(index) if index is not None else resolved.files.get("index")
+        return RVCVoiceModelPaths(model_path=model_path, index_path=index_path)
+
+    def _resolve_index_path(self, index) -> Path:
+        path = Path(index)
+        if not path.exists():
+            raise FileNotFoundError(f"RVC index file not found: {path}")
+        if not path.is_file():
+            raise FileNotFoundError(f"RVC index path is not a file: {path}")
+        if path.suffix.lower() != ".index":
+            raise ValueError(f"RVC index file must be a .index file: {path}")
+        return path
+
     def _ensure_hubert(self):
         if self._hubert_model is None:
             if not self.hubert_path.exists():
@@ -293,7 +347,10 @@ class RVCConverter:
         return self._hubert_model
 
     def load_voice_model(self, voice_model):
-        paths = self.find_voice_model(voice_model)
+        paths = voice_model if isinstance(voice_model, RVCVoiceModelPaths) else self.find_voice_model(voice_model)
+        return self._load_voice_model_paths(paths)
+
+    def _load_voice_model_paths(self, paths: RVCVoiceModelPaths):
         cache_key = str(paths.model_path.resolve())
         if cache_key not in self._model_cache:
             cpt, version, net_g, tgt_sr, vc = get_vc(
@@ -312,22 +369,170 @@ class RVCConverter:
                 vc=vc,
             )
 
-        self._active_model = self._model_cache[cache_key]
+        loaded_model = self._model_cache[cache_key]
+        if loaded_model.paths != paths:
+            loaded_model = replace(loaded_model, paths=paths)
+        self._active_model = loaded_model
         return self._active_model
 
-    def convert(self, input_audio, output_audio, voice_model=None, options=None, **option_overrides):
-        options = options or RVCConversionOptions()
-        if option_overrides:
-            options = replace(options, **option_overrides)
+    def convert(
+        self,
+        input_audio,
+        output_audio,
+        voice_model=None,
+        options=None,
+        *,
+        model=None,
+        index=None,
+        models_dir=None,
+        model_dirs: Optional[Sequence[str | Path]] = None,
+        download_dir=None,
+        auto_download: bool = False,
+        verify: bool = True,
+        pitch_change: Optional[int] = None,
+        f0_method: Optional[str] = None,
+        index_rate: Optional[float] = None,
+        filter_radius: Optional[int] = None,
+        rms_mix_rate: Optional[float] = None,
+        protect: Optional[float] = None,
+        crepe_hop_length: Optional[int] = None,
+        hop_length: Optional[int] = None,
+        sid: Optional[int] = None,
+        resample_sr: Optional[int] = None,
+        f0_file: Optional[object] = None,
+        **option_overrides,
+    ):
+        self._apply_models_dir_override(models_dir)
+        options = self._resolve_conversion_options(
+            options,
+            option_overrides,
+            pitch_change=pitch_change,
+            f0_method=f0_method,
+            index_rate=index_rate,
+            filter_radius=filter_radius,
+            rms_mix_rate=rms_mix_rate,
+            protect=protect,
+            crepe_hop_length=crepe_hop_length,
+            hop_length=hop_length,
+            sid=sid,
+            resample_sr=resample_sr,
+            f0_file=f0_file,
+        )
 
-        loaded_model = self.load_voice_model(voice_model) if voice_model else self._active_model
+        selected_model = model if model is not None else voice_model
+        if selected_model:
+            if self._should_use_resolver(
+                model=model,
+                models_dir=models_dir,
+                model_dirs=model_dirs,
+                download_dir=download_dir,
+                auto_download=auto_download,
+                verify=verify,
+            ):
+                paths = self.resolve_voice_model(
+                    selected_model,
+                    index=index,
+                    models_dir=models_dir,
+                    model_dirs=model_dirs,
+                    download_dir=download_dir,
+                    auto_download=auto_download,
+                    verify=verify,
+                )
+            else:
+                paths = self.find_voice_model(selected_model)
+                if index is not None:
+                    paths = replace(paths, index_path=self._resolve_index_path(index))
+            loaded_model = self.load_voice_model(paths)
+        else:
+            loaded_model = self._active_model
+            if loaded_model is not None and index is not None:
+                paths = replace(loaded_model.paths, index_path=self._resolve_index_path(index))
+                loaded_model = replace(loaded_model, paths=paths)
+                self._active_model = loaded_model
+
         if loaded_model is None:
-            raise ValueError("voice_model is required before a model has been loaded.")
+            raise ValueError("model or voice_model is required before a model has been loaded.")
 
         output_audio = Path(output_audio)
         output_audio.parent.mkdir(parents=True, exist_ok=True)
         index_path = str(loaded_model.paths.index_path) if loaded_model.paths.index_path else ""
 
+        return self._run_infer(
+            loaded_model,
+            options,
+            input_audio=input_audio,
+            output_audio=output_audio,
+            index_path=index_path,
+        )
+
+    def _resolve_conversion_options(
+        self,
+        options,
+        option_overrides,
+        *,
+        pitch_change=None,
+        f0_method=None,
+        index_rate=None,
+        filter_radius=None,
+        rms_mix_rate=None,
+        protect=None,
+        crepe_hop_length=None,
+        hop_length=None,
+        sid=None,
+        resample_sr=None,
+        f0_file=None,
+    ) -> RVCConversionOptions:
+        resolved = options or RVCConversionOptions()
+        updates = dict(option_overrides)
+        explicit = {
+            "pitch_change": pitch_change,
+            "f0_method": f0_method,
+            "index_rate": index_rate,
+            "filter_radius": filter_radius,
+            "rms_mix_rate": rms_mix_rate,
+            "protect": protect,
+            "crepe_hop_length": crepe_hop_length if crepe_hop_length is not None else hop_length,
+            "sid": sid,
+            "resample_sr": resample_sr,
+            "f0_file": f0_file,
+        }
+        updates.update({name: value for name, value in explicit.items() if value is not None})
+        if updates:
+            resolved = replace(resolved, **updates)
+        return resolved
+
+    def _should_use_resolver(
+        self,
+        *,
+        model,
+        models_dir,
+        model_dirs,
+        download_dir,
+        auto_download: bool,
+        verify: bool,
+    ) -> bool:
+        return (
+            model is not None
+            or models_dir is not None
+            or model_dirs is not None
+            or download_dir is not None
+            or bool(auto_download)
+            or verify is False
+        )
+
+    def _apply_models_dir_override(self, models_dir) -> None:
+        if models_dir is None:
+            return
+        self.models_dir = Path(models_dir)
+        if not getattr(self, "_hubert_path_explicit", False):
+            self.hubert_path = self.models_dir / "hubert_base.pt"
+            self._hubert_model = None
+        if not getattr(self, "_rmvpe_path_explicit", False):
+            self.rmvpe_path = self.models_dir / "rmvpe.pt"
+            if hasattr(self, "config"):
+                self.config.rmvpe_path = str(self.rmvpe_path)
+
+    def _run_infer(self, loaded_model, options, *, input_audio, output_audio, index_path):
         return Path(
             rvc_infer(
                 index_path,

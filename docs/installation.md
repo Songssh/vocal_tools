@@ -38,6 +38,8 @@ python -m pip install -e ".[gpu]"
 python -m pip install -e ".[demucs]"
 python -m pip install -e ".[rvc]"
 python -m pip install -e ".[audio]"
+python -m pip install -e ".[edge-tts]"
+python -m pip install -e ".[qwen-tts]"
 ```
 
 Recommended local order for the current verified environment:
@@ -56,6 +58,9 @@ Notes:
 - `demucs` installs the Demucs package.
 - `rvc` installs RVC-related packages such as `fairseq`, `faiss-cpu`, `pyworld`, and `torchcrepe`.
 - `audio` installs optional audio utility packages such as `pedalboard` and `pydub`.
+- `edge-tts` installs the online Edge speech client; WAV output also requires `ffmpeg` on PATH.
+- `qwen-tts` installs the local reference voice runtime. `tts` installs both TTS backends.
+- Install TTS extras explicitly; the legacy `all` extra does not include them. See [usage_tts.md](usage_tts.md).
 - `vr` and `mdxc` are adapter slots. They currently do not install a concrete bundled backend.
 - Demucs models are package-managed; they are not stored as local model files by `vocal_tools`.
 - `all` installs MDX CPU runtime, RVC runtime, and optional audio packages. It intentionally does not include `demucs`, because Demucs can bring a larger runtime stack and package-managed model behavior. Install `.[demucs]` explicitly when needed.

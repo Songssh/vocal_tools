@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
 import json
 import sys
 import traceback
+from pathlib import Path
 from typing import Any
 
 from vocal_tools.core.options import parse_key_value_options
@@ -13,6 +15,7 @@ from vocal_tools.tasks import (
     run_audio_cover_pipeline_payload,
     run_audio_rvc_convert_payload,
     run_audio_separate_payload,
+    run_tts_payload,
 )
 
 
@@ -64,8 +67,35 @@ def build_parser() -> argparse.ArgumentParser:
     voices_list.set_defaults(func=cmd_voices_list)
 
     separate = subparsers.add_parser("separate", help="Run source separation.")
-    separate.add_argument("--models-dir", required=True, help="Separation model directory.")
-    separate.add_argument("--model-id", required=True, help="Model id from the catalog.")
+    separate.add_argument("--models-dir", default=".", help="Separation model directory.")
+    separate.add_argument("--model", help="Model id, filename, directory, or direct model file path.")
+    separate.add_argument("--model-id", default="kim_vocal_2", help="Model id from the catalog.")
+    separate.add_argument(
+        "--model-dir",
+        dest="model_dirs",
+        action="append",
+        default=[],
+        help="Additional model search directory. Can be repeated.",
+    )
+    separate.add_argument(
+        "--model-dirs",
+        dest="model_dirs",
+        action="append",
+        help="Additional model search directory. Can be repeated.",
+    )
+    separate.add_argument("--download-dir", help="Directory for resolver-managed model downloads.")
+    separate.add_argument(
+        "--no-auto-download",
+        action="store_false",
+        dest="auto_download",
+        help="Do not download missing catalog models.",
+    )
+    separate.add_argument(
+        "--no-verify",
+        action="store_false",
+        dest="verify",
+        help="Skip checksum and file-size verification during resolver downloads.",
+    )
     separate.add_argument("--input", required=True, dest="input_audio", help="Input audio path.")
     separate.add_argument("--output-dir", required=True, help="Output directory for stems.")
     separate.add_argument(
@@ -84,7 +114,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     rvc = subparsers.add_parser("rvc-convert", help="Run RVC voice conversion.")
     rvc.add_argument("--models-dir", required=True, help="Root directory containing Hubert/RMVPE and voices.")
-    rvc.add_argument("--voice-model", required=True, help="Voice model id, directory, or .pth path.")
+    rvc.add_argument("--voice-model", help="Voice model id, directory, or .pth path.")
+    rvc.add_argument("--model", help="Voice model id, directory, or direct .pth path. Overrides --voice-model.")
+    rvc.add_argument("--index", help="Optional .index file. Overrides automatic index discovery.")
+    rvc.add_argument(
+        "--model-dir",
+        dest="model_dirs",
+        action="append",
+        default=[],
+        help="Additional RVC voice model search directory. Can be repeated.",
+    )
+    rvc.add_argument(
+        "--model-dirs",
+        dest="model_dirs",
+        action="append",
+        help="Additional RVC voice model search directory. Can be repeated.",
+    )
+    rvc.add_argument(
+        "--download-dir",
+        help="Directory for resolver-managed downloads. RVC auto-download is limited to single-file models.",
+    )
+    rvc.add_argument(
+        "--auto-download",
+        action="store_true",
+        help="Download resolver-supported single-file RVC models when available.",
+    )
+    rvc.add_argument(
+        "--no-verify",
+        action="store_false",
+        dest="verify",
+        help="Skip checksum and file-size verification during resolver downloads.",
+    )
     rvc.add_argument("--input", required=True, dest="input_audio", help="Input vocal audio path.")
     rvc.add_argument("--output", required=True, dest="output_audio", help="Output converted audio path.")
     rvc.add_argument("--hubert-path", help="Optional Hubert model path.")
@@ -123,6 +183,26 @@ def build_parser() -> argparse.ArgumentParser:
     cover.add_argument("--karaoke-option", action="append", default=[], metavar="KEY=VALUE")
     cover.add_argument("--json", action="store_true", help="Print JSON output.")
     cover.set_defaults(func=cmd_cover)
+
+    tts = subparsers.add_parser("tts", help="Synthesize speech with Edge or a Qwen3-TTS reference voice.")
+    tts.add_argument("--engine", choices=["edge", "qwen3"], default="edge")
+    tts.add_argument("--text", required=True, help="Text to speak.")
+    tts.add_argument("--output", required=True, dest="output_path", help="MP3/WAV for Edge, WAV for Qwen3.")
+    tts.add_argument("--voice", help="Edge voice ID, default ko-KR-SunHiNeural.")
+    tts.add_argument("--reference-audio", help="Qwen3 reference audio file.")
+    tts.add_argument("--reference-text", help="Transcript of the reference audio, when known.")
+    tts.add_argument("--language", help="Qwen3 language, for example Korean or ko; default Auto.")
+    tts.add_argument("--x-vector-only", dest="x_vector_only_mode", action="store_true", default=None,
+                     help="Clone speaker embedding only; automatically used when reference text is omitted.")
+    tts.add_argument("--model", help="Qwen3-TTS Base model ID or directory; default Qwen/Qwen3-TTS-12Hz-0.6B-Base.")
+    tts.add_argument("--device", help="Qwen3 device: auto, cpu, cuda:0, etc.")
+    tts.add_argument("--dtype", choices=["auto", "float32", "float16", "bfloat16"])
+    tts.add_argument("--cache-dir", help="Qwen3 model cache directory.")
+    tts.add_argument("--local-files-only", action="store_true", default=None, help="Use cached/local Qwen3 models only.")
+    tts.add_argument("--option", action="append", default=[], metavar="KEY=VALUE",
+                     help="Edge rate/volume/pitch or Qwen3 generation option. May be repeated.")
+    tts.add_argument("--json", action="store_true")
+    tts.set_defaults(func=cmd_tts)
 
     return parser
 
@@ -189,18 +269,31 @@ def cmd_voices_list(args: argparse.Namespace) -> None:
 
 
 def cmd_separate(args: argparse.Namespace) -> None:
-    payload = {
-        "models_dir": args.models_dir,
-        "model_id": args.model_id,
-        "input_audio": args.input_audio,
-        "output_dir": args.output_dir,
-        "options": parse_key_value_options(args.option),
-        "builtin_manifest_path": args.builtin_manifest_path,
-        "user_manifest_path": args.user_manifest_path,
-        "remote_manifest_url": args.remote_manifest_url,
-        "remote_manifest_cache_path": args.remote_manifest_cache_path,
-    }
-    result = run_audio_separate_payload(payload, progress_callback=_progress_callback(args.json))
+    from vocal_tools.catalog import ModelCatalog
+    from vocal_tools.separator import Separator
+
+    catalog = ModelCatalog(
+        model_dir=Path(args.models_dir),
+        builtin_manifest_path=args.builtin_manifest_path,
+        user_manifest_path=args.user_manifest_path,
+        remote_manifest_url=args.remote_manifest_url,
+        remote_manifest_cache_path=args.remote_manifest_cache_path,
+    )
+    separator = Separator(catalog=catalog)
+    result_obj = separator.separate(
+        input_audio=args.input_audio,
+        output_dir=args.output_dir,
+        model=args.model,
+        model_id=args.model_id,
+        models_dir=args.models_dir,
+        model_dirs=args.model_dirs,
+        download_dir=args.download_dir,
+        auto_download=args.auto_download,
+        verify=args.verify,
+        options=parse_key_value_options(args.option),
+        progress_callback=_progress_callback(args.json),
+    )
+    result = result_obj.to_dict()
     if args.json:
         _print_json(result)
         return
@@ -214,20 +307,46 @@ def cmd_separate(args: argparse.Namespace) -> None:
 
 
 def cmd_rvc_convert(args: argparse.Namespace) -> None:
-    payload = {
-        "models_dir": args.models_dir,
-        "voice_model": args.voice_model,
-        "input_audio": args.input_audio,
-        "output_audio": args.output_audio,
-        "hubert_path": args.hubert_path,
-        "rmvpe_path": args.rmvpe_path,
-        "device": args.device,
-        "options": parse_key_value_options(args.option),
-    }
-    if args.is_half is not None:
-        payload["is_half"] = parse_key_value_options([f"is_half={args.is_half}"])["is_half"]
+    from vocal_tools.catalog import ModelCatalog
+    from vocal_tools.rvc import RVCConversionOptions, RVCConverter
 
-    result = run_audio_rvc_convert_payload(payload, progress_callback=_progress_callback(args.json))
+    option_values = parse_key_value_options(args.option)
+    if args.is_half is not None:
+        is_half = parse_key_value_options([f"is_half={args.is_half}"])["is_half"]
+    else:
+        is_half = "auto"
+
+    catalog = ModelCatalog(model_dir=Path(args.models_dir))
+    converter = RVCConverter(
+        models_dir=args.models_dir,
+        hubert_path=args.hubert_path,
+        rmvpe_path=args.rmvpe_path,
+        device=args.device,
+        is_half=is_half,
+        catalog=catalog,
+    )
+    options = RVCConversionOptions(**option_values)
+    converted = converter.convert(
+        input_audio=args.input_audio,
+        output_audio=args.output_audio,
+        voice_model=args.voice_model,
+        model=args.model,
+        index=args.index,
+        model_dirs=args.model_dirs,
+        download_dir=args.download_dir,
+        auto_download=args.auto_download,
+        verify=args.verify,
+        options=options,
+    )
+    converted = Path(converted)
+    result = {
+        "input_audio": str(args.input_audio),
+        "output_audio": str(converted),
+        "voice_model": str(args.model or args.voice_model),
+        "exists": converted.exists(),
+        "size": converted.stat().st_size if converted.exists() else None,
+        "options_used": options.__dict__,
+    }
     if args.json:
         _print_json(result)
         return
@@ -268,6 +387,24 @@ def cmd_cover(args: argparse.Namespace) -> None:
     print(mix.get("output_path") or result.get("output_dir"))
 
 
+def cmd_tts(args: argparse.Namespace) -> None:
+    payload = {"engine": args.engine, "text": args.text, "output_path": args.output_path,
+               "options": parse_key_value_options(args.option), "config": {}}
+    for key in ("voice", "reference_audio", "reference_text", "language", "x_vector_only_mode"):
+        if getattr(args, key) is not None:
+            payload[key] = getattr(args, key)
+    for key in ("model", "device", "dtype", "cache_dir", "local_files_only"):
+        if getattr(args, key) is not None:
+            payload["config"][key] = getattr(args, key)
+    # Upstream model loaders may print status banners. Keep stdout JSON-safe.
+    with redirect_stdout(sys.stderr):
+        result = run_tts_payload(payload)
+    if args.json:
+        _print_json(result)
+    else:
+        print(result["output_path"])
+
+
 def _add_model_listing_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--models-dir", required=True, help="Root model directory.")
     parser.add_argument("--separation-models-dir", help="Override separation model directory.")
@@ -275,6 +412,12 @@ def _add_model_listing_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--user-manifest-path", help="Optional user manifest path.")
     parser.add_argument("--remote-manifest-url", help="Optional remote manifest URL.")
     parser.add_argument("--remote-manifest-cache-path", help="Optional remote manifest cache path.")
+    parser.add_argument(
+        "--include-unsupported",
+        action="store_true",
+        help="Include model cards for architectures without a runnable vocal_tools engine.",
+    )
+    parser.add_argument("--source", help="Filter model cards by source, for example builtin, remote, user, or uvr.")
 
 
 def _model_listing_payload(args: argparse.Namespace, *, include_voice: bool) -> dict[str, Any]:
@@ -285,6 +428,8 @@ def _model_listing_payload(args: argparse.Namespace, *, include_voice: bool) -> 
         "user_manifest_path": args.user_manifest_path,
         "remote_manifest_url": args.remote_manifest_url,
         "remote_manifest_cache_path": args.remote_manifest_cache_path,
+        "include_unsupported": args.include_unsupported,
+        "source": args.source,
         "include_separation_models": True,
         "include_voice_models": include_voice,
     }

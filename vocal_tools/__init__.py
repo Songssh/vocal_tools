@@ -6,9 +6,14 @@ from typing import Any
 
 # Catalog
 _CATALOG_EXPORTS = {
+    "DEFAULT_UVR_SOURCES": ".catalog",
+    "load_uvr_model_entries": ".catalog",
     "ModelCatalog": ".catalog",
     "ModelStore": ".catalog",
+    "ResolvedModel": ".catalog",
+    "resolve_model": ".catalog",
     "RVCVoiceCatalog": ".catalog",
+    "UVRModelImporter": ".catalog",
 }
 
 # Core Types
@@ -32,6 +37,17 @@ _RVC_EXPORTS = {
     "RVCVoiceModelPaths": ".rvc",
 }
 
+# Text to speech
+_TTS_EXPORTS = {
+    "TTS": ".tts",
+    "TTSResult": ".tts",
+    "EdgeTTS": ".tts",
+    "Qwen3TTS": ".tts",
+    "DEFAULT_QWEN3_TTS_MODEL": ".tts",
+    "TTSError": ".core",
+    "TTSDependencyError": ".core",
+}
+
 # Mixing
 _MIXING_EXPORTS = {
     "AudioMixOptions": ".audio",
@@ -48,6 +64,8 @@ _PIPELINE_EXPORTS = {
 
 # Task Helpers
 _TASK_HELPER_EXPORTS = {
+    "run_tts_payload": ".tasks",
+    "run_tts_payload_async": ".tasks",
     "run_audio_separate_payload": ".tasks",
     "run_audio_rvc_convert_payload": ".tasks",
     "run_audio_cover_pipeline_payload": ".tasks",
@@ -57,6 +75,7 @@ _TASK_HELPER_EXPORTS = {
 
 # Validation
 _VALIDATION_EXPORTS = {
+    "validate_tts_payload": ".tasks",
     "validate_audio_separate_payload": ".tasks",
     "validate_audio_rvc_convert_payload": ".tasks",
     "validate_audio_cover_pipeline_payload": ".tasks",
@@ -74,6 +93,7 @@ _EXPORTS = {
     **_CORE_TYPE_EXPORTS,
     **_SEPARATION_EXPORTS,
     **_RVC_EXPORTS,
+    **_TTS_EXPORTS,
     **_MIXING_EXPORTS,
     **_PIPELINE_EXPORTS,
     **_TASK_HELPER_EXPORTS,
@@ -86,6 +106,7 @@ __all__ = [
     *_CORE_TYPE_EXPORTS,
     *_SEPARATION_EXPORTS,
     *_RVC_EXPORTS,
+    *_TTS_EXPORTS,
     *_MIXING_EXPORTS,
     *_PIPELINE_EXPORTS,
     *_TASK_HELPER_EXPORTS,
